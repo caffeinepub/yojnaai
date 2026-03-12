@@ -451,14 +451,62 @@ export default function AdminPage() {
     toast.success("Exported successfully!");
   };
 
+  // Normalize imported scheme data to fill missing required fields
+  const normalizeScheme = (raw: Record<string, unknown>): Scheme => {
+    const name = (raw.name as string) || "Unnamed Scheme";
+    const slug =
+      (raw.slug as string) ||
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .trim() ||
+      `scheme-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    return {
+      id:
+        (raw.id as string) ||
+        `imported-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name,
+      state: (raw.state as string) || "India",
+      category: (raw.category as string) || "General",
+      benefit: (raw.benefit as string) || "",
+      benefit_amount_numeric:
+        typeof raw.benefit_amount_numeric === "number"
+          ? raw.benefit_amount_numeric
+          : 0,
+      eligibility: (raw.eligibility as string) || "",
+      documents: Array.isArray(raw.documents)
+        ? raw.documents
+        : typeof raw.documents === "string"
+          ? (raw.documents as string)
+              .split("|")
+              .map((d: string) => d.trim())
+              .filter(Boolean)
+          : [],
+      apply_link: (raw.apply_link as string) || (raw.applyLink as string) || "",
+      description: (raw.description as string) || "",
+      tags: Array.isArray(raw.tags)
+        ? raw.tags
+        : typeof raw.tags === "string"
+          ? (raw.tags as string)
+              .split(",")
+              .map((t: string) => t.trim())
+              .filter(Boolean)
+          : [],
+      slug,
+    };
+  };
+
   const handleImportJson = () => {
     try {
-      const parsed = JSON.parse(importJson) as Scheme[];
+      const parsed = JSON.parse(importJson) as Record<string, unknown>[];
       if (!Array.isArray(parsed)) throw new Error("Must be an array");
-      setSchemes([...schemes, ...parsed]);
+      const normalized = parsed.map(normalizeScheme);
+      setSchemes([...schemes, ...normalized]);
       setImportJson("");
       setShowImport(false);
-      toast.success(`Imported ${parsed.length} schemes!`);
+      toast.success(`${normalized.length} schemes import ho gaye!`);
     } catch (err) {
       toast.error(
         `Invalid JSON: ${err instanceof Error ? err.message : "unknown error"}`,
@@ -473,9 +521,10 @@ export default function AdminPage() {
     if (file.name.endsWith(".json")) {
       const text = await file.text();
       try {
-        const parsed = JSON.parse(text) as Scheme[];
-        setSchemes([...schemes, ...parsed]);
-        toast.success(`Imported ${parsed.length} schemes from JSON!`);
+        const parsed = JSON.parse(text) as Record<string, unknown>[];
+        const normalized = parsed.map(normalizeScheme);
+        setSchemes([...schemes, ...normalized]);
+        toast.success(`${normalized.length} schemes import ho gaye JSON se!`);
       } catch {
         toast.error("Invalid JSON file.");
       }

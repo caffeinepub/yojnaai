@@ -1,6 +1,6 @@
 // AI service using OpenRouter
-const OPENROUTER_API_KEY =
-  "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";
+// API key is stored in .env file (never hardcode secrets in source code)
+const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY as string;
 
 // Model fallback chain -- all 4 models used in order
 const MODELS = [
