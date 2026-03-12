@@ -10,38 +10,32 @@ import { AnimatePresence } from "motion/react";
 import { Suspense, lazy } from "react";
 import { PageSkeleton } from "./components/LoadingSkeleton";
 import Navbar from "./components/Navbar";
-import { ThemeProvider, useTheme } from "./context/ThemeContext";
+import { ThemeProvider } from "./context/ThemeContext";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
-const CategoryPage = lazy(() => import("./pages/CategoryPage"));
-const SchemePage = lazy(() => import("./pages/SchemePage"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
+const CategoriesPage = lazy(() => import("./pages/CategoriesPage"));
+const SchemeDetailPage = lazy(() => import("./pages/SchemeDetailPage"));
+const CalculatorPage = lazy(() => import("./pages/CalculatorPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
-const SitemapPage = lazy(() => import("./pages/SitemapPage"));
+const CategoryPage = lazy(() => import("./pages/CategoryPage"));
 
 function RootLayout() {
-  const { theme } = useTheme();
   return (
-    <div
-      className="min-h-screen"
-      style={{ background: theme === "dark" ? "#0B0F1A" : "#FAFAFA" }}
-    >
+    <div className="min-h-screen" style={{ background: "#0B0F1A" }}>
       <Navbar />
       <AnimatePresence mode="wait">
         <Outlet />
       </AnimatePresence>
       <Toaster
-        theme={theme}
-        toastOptions={
-          theme === "dark"
-            ? {
-                style: {
-                  background: "rgba(13, 17, 28, 0.95)",
-                  border: "1px solid rgba(108, 92, 231, 0.3)",
-                  color: "white",
-                },
-              }
-            : {}
-        }
+        theme="dark"
+        toastOptions={{
+          style: {
+            background: "rgba(13, 17, 28, 0.95)",
+            border: "1px solid rgba(108, 92, 231, 0.3)",
+            color: "white",
+          },
+        }}
       />
     </div>
   );
@@ -65,12 +59,22 @@ const indexRoute = createRoute({
   ),
 });
 
-const schemesRoute = createRoute({
+const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/schemes/$category",
+  path: "/search",
   component: () => (
     <Suspense fallback={<PageSkeleton />}>
-      <CategoryPage />
+      <SearchPage />
+    </Suspense>
+  ),
+});
+
+const categoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/categories",
+  component: () => (
+    <Suspense fallback={<PageSkeleton />}>
+      <CategoriesPage />
     </Suspense>
   ),
 });
@@ -80,7 +84,17 @@ const schemeDetailRoute = createRoute({
   path: "/scheme/$slug",
   component: () => (
     <Suspense fallback={<PageSkeleton />}>
-      <SchemePage />
+      <SchemeDetailPage />
+    </Suspense>
+  ),
+});
+
+const calculatorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/calculator",
+  component: () => (
+    <Suspense fallback={<PageSkeleton />}>
+      <CalculatorPage />
     </Suspense>
   ),
 });
@@ -95,22 +109,24 @@ const adminRoute = createRoute({
   ),
 });
 
-const sitemapRoute = createRoute({
+const categoryRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/sitemap.xml",
+  path: "/schemes/$category",
   component: () => (
-    <Suspense fallback={null}>
-      <SitemapPage />
+    <Suspense fallback={<PageSkeleton />}>
+      <CategoryPage />
     </Suspense>
   ),
 });
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  schemesRoute,
+  searchRoute,
+  categoriesRoute,
   schemeDetailRoute,
+  calculatorRoute,
   adminRoute,
-  sitemapRoute,
+  categoryRoute,
 ]);
 
 const router = createRouter({ routeTree });

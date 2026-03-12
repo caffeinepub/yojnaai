@@ -1,19 +1,23 @@
+// AI service using OpenRouter
 const OPENROUTER_API_KEY =
-  "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";
-const PRIMARY_MODEL = "qwen/qwen3-next-80b-a3b-instruct";
-const FALLBACK_MODEL = "liquid/lfm-2.5-1.2b-thinking";
+  "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";
 
-async function callModel(model: string, prompt: string): Promise<string> {
+// Model fallback chain -- all 4 models used in order
+const MODELS = [
+  "qwen/qwen3-next-80b-a3b-instruct",
+  "liquid/lfm-2.5-1.2b-instruct",
+  "liquid/lfm-2.5-1.2b-thinking",
+  "meta-llama/llama-3.1-8b-instruct:free",
+];
+
+async function callOpenRouter(prompt: string, model: string): Promise<string> {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      "HTTP-Referer":
-        typeof window !== "undefined"
-          ? window.location.origin
-          : "https://yojnaai.com",
-      "X-Title": "YojnaAI - Indian Government Scheme Finder",
+      "HTTP-Referer": "https://yojnaai.caffeine.xyz",
+      "X-Title": "YojnaAI",
     },
     body: JSON.stringify({
       model,
@@ -31,25 +35,26 @@ async function callModel(model: string, prompt: string): Promise<string> {
   }
 
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Empty response from AI model");
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("OpenRouter se khali jawab aaya");
   return content;
 }
 
-export async function queryAI(prompt: string): Promise<string> {
-  try {
-    return await callModel(PRIMARY_MODEL, prompt);
-  } catch (primaryError) {
-    console.warn("Primary AI model failed, trying fallback:", primaryError);
+async function queryAIWithFallback(prompt: string): Promise<string> {
+  let lastError: unknown;
+  for (const model of MODELS) {
     try {
-      return await callModel(FALLBACK_MODEL, prompt);
-    } catch (fallbackError) {
-      console.error("Both AI models failed:", fallbackError);
-      throw new Error(
-        `AI answer nahi aa saki. Error: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
-      );
+      return await callOpenRouter(prompt, model);
+    } catch (e) {
+      console.warn(`Model ${model} failed, trying next:`, e);
+      lastError = e;
     }
   }
+  throw lastError;
+}
+
+export async function queryAI(prompt: string): Promise<string> {
+  return queryAIWithFallback(prompt);
 }
 
 export async function extractUserProfile(
@@ -91,19 +96,30 @@ export async function suggestAdditionalSchemes(
   userProfile: string,
   existingSchemes: string[],
 ): Promise<string> {
-  const prompt = `You are an expert on Indian government welfare schemes. 
+  const prompt = `You are an expert on Indian government welfare schemes.
 
 User profile: ${userProfile}
 Already found schemes: ${existingSchemes.join(", ")}
 
-Suggest 3-5 additional relevant Indian government schemes this person might qualify for that are NOT in the already found list. Focus on lesser-known but highly beneficial schemes.
+Suggest 3-5 additional relevant Indian government schemes this person might qualify for that are NOT in the already found list.
 
-For each scheme provide:
-- Scheme name
-- Key benefit (amount or type)
-- Why this person qualifies
+IMPORTANT FORMATTING RULES:
+- Use ## for main section headings (e.g. ## Suggested Schemes)
+- Use ### for each scheme name as a subheading
+- Use **bold** for key terms, amounts, and important highlights within text
+- Use bullet points (- ) for listing details under each scheme
+- Add --- divider between schemes
+- Answer in Hinglish (mix of Hindi and English)
 
-Be specific and accurate about real Indian government schemes.`;
+Example format:
+## Suggested Schemes
+
+### 1. **Scheme Name**
+- **Benefit:** ₹amount or description
+- **Eligibility:** who can apply
+- **Why relevant:** reason
+
+---`;
 
   return queryAI(prompt);
 }
@@ -113,15 +129,26 @@ export async function answerDirectQuery(userQuery: string): Promise<string> {
 
 User's question: "${userQuery}"
 
-This query is NOT about a specific government welfare scheme in the database, but the user is asking about it. Answer this question thoroughly and helpfully.
+Answer this question thoroughly and helpfully.
 
-Provide:
-1. Clear explanation of what this is
-2. Key details (dates, eligibility, process, benefits if applicable)
-3. How to apply or where to get more information (official website if known)
-4. Any important recent updates
+IMPORTANT FORMATTING RULES (strictly follow):
+- Use ## for main section headings
+- Use ### for sub-section headings
+- Use **bold** for ALL important terms, names, amounts, dates, and key highlights
+- Use bullet points (- ) for listing details
+- Add --- divider between major sections
+- Answer in Hinglish (mix of Hindi and English) for easy understanding
 
-Be accurate, specific, and helpful. If it's a recruitment/vacancy query, provide details about the recruitment process, eligibility, syllabus, etc. Answer in a mix of Hindi and English (Hinglish) to make it easy to understand for Indian users. Use bullet points for clarity.`;
+Required sections:
+## **Overview** (brief explanation)
+---
+## **Key Details** (important facts, dates, amounts in bold)
+---
+## **Eligibility & Process** (who can apply, how to apply)
+---
+## **Important Links** (official website or where to get more info)
+
+Make sure every important term, number, date, and name is **bold**.`;
 
   return queryAI(prompt);
 }

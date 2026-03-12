@@ -15,6 +15,62 @@ export interface FindResult {
   aiSuggested: boolean;
   aiText?: string;
   noLocalMatch?: boolean;
+  aiError?: string;
+}
+
+// Common stop words that shouldn't count as meaningful matches
+const STOP_WORDS = new Set([
+  "the",
+  "for",
+  "and",
+  "with",
+  "from",
+  "into",
+  "post",
+  "new",
+  "all",
+  "get",
+  "how",
+  "what",
+  "mai",
+  "hai",
+  "kar",
+  "karo",
+  "mein",
+  "me",
+  "ka",
+  "ki",
+  "ko",
+  "ke",
+  "se",
+  "kya",
+  "aur",
+  "yeh",
+  "woh",
+  "koi",
+  "bol",
+  "bata",
+  "isko",
+  "uska",
+  "iske",
+]);
+
+// Normalize text for better matching (handle yojna/yojana, common spelling variations)
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/yojna/g, "yojna yojana")
+    .replace(/yojana/g, "yojna yojana")
+    .replace(/pradhan mantri/g, "pradhan mantri pm")
+    .replace(/\bpm\b/g, "pm pradhan mantri");
+}
+
+// Extract meaningful words from query (remove stop words, short words)
+function getMeaningfulWords(query: string): string[] {
+  const normalized = normalizeText(query);
+  return normalized
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 }
 
 export function filterSchemes(
@@ -42,21 +98,53 @@ export function filterSchemes(
     );
   }
 
-  // Natural language query filter
+  // Natural language query filter -- word-level matching with normalization
   if (params.query) {
-    const q = params.query.toLowerCase();
-    const queryFiltered = filtered.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q) ||
-        s.tags.some((t) => t.toLowerCase().includes(q)) ||
-        s.eligibility.toLowerCase().includes(q) ||
-        s.benefit.toLowerCase().includes(q),
-    );
+    const words = getMeaningfulWords(params.query);
+
+    if (words.length === 0) return filtered;
+
+    const queryFiltered = filtered.filter((s) => {
+      const normalizedName = normalizeText(s.name);
+      const normalizedDesc = normalizeText(s.description);
+      const normalizedElig = normalizeText(s.eligibility);
+      const normalizedBenefit = normalizeText(s.benefit);
+      const normalizedTags = s.tags.map((t) => normalizeText(t)).join(" ");
+
+      // Count how many words match -- need majority match
+      const matchCount = words.filter(
+        (w) =>
+          normalizedName.includes(w) ||
+          normalizedDesc.includes(w) ||
+          normalizedTags.includes(w) ||
+          normalizedElig.includes(w) ||
+          normalizedBenefit.includes(w),
+      ).length;
+
+      // Require at least 50% of meaningful words to match, or name/tag direct match
+      const nameTagMatch = words.some(
+        (w) => normalizedName.includes(w) || normalizedTags.includes(w),
+      );
+
+      if (words.length === 1) return nameTagMatch;
+      if (words.length === 2) return matchCount >= 2 || nameTagMatch;
+      // For 3+ words: need at least 50% match AND a name/tag match
+      return matchCount >= Math.ceil(words.length * 0.5) && nameTagMatch;
+    });
+
     if (queryFiltered.length > 0) {
+      // Sort by relevance -- more word matches in name/tags = higher rank
+      queryFiltered.sort((a, b) => {
+        const scoreA = words.filter((w) =>
+          normalizeText(`${a.name} ${a.tags.join(" ")}`).includes(w),
+        ).length;
+        const scoreB = words.filter((w) =>
+          normalizeText(`${b.name} ${b.tags.join(" ")}`).includes(w),
+        ).length;
+        return scoreB - scoreA;
+      });
       filtered = queryFiltered;
     } else {
-      // No matching schemes for this query - mark as empty
       filtered = [];
     }
   }
@@ -74,21 +162,25 @@ export function filterSchemes(
 
 /**
  * Check if the local results are actually relevant to the query.
- * Returns false if results seem like a broad fallback rather than genuine matches.
+ * Uses strict relevance: multiple meaningful words must match name or tags.
  */
 function areResultsRelevantToQuery(query: string, schemes: Scheme[]): boolean {
   if (!query || schemes.length === 0) return true;
-  const q = query.toLowerCase();
-  const words = q.split(/\s+/).filter((w) => w.length > 2);
+  const words = getMeaningfulWords(query);
+  if (words.length === 0) return true;
 
-  // Check if at least one meaningful word matches a scheme name or primary tag
-  return schemes.some((s) =>
-    words.some(
-      (w) =>
-        s.name.toLowerCase().includes(w) ||
-        s.tags.some((t) => t.toLowerCase().includes(w)),
-    ),
+  // For each scheme, calculate what % of query words match name+tags
+  const bestScore = Math.max(
+    ...schemes.map((s) => {
+      const target = normalizeText(`${s.name} ${s.tags.join(" ")}`);
+      const matchCount = words.filter((w) => target.includes(w)).length;
+      return matchCount / words.length;
+    }),
   );
+
+  // Require at least 50% of meaningful words to match name/tags
+  if (words.length === 1) return bestScore === 1; // exact single word match required
+  return bestScore >= 0.5;
 }
 
 export async function findSchemes(
@@ -112,8 +204,14 @@ export async function findSchemes(
         aiText,
         noLocalMatch: true,
       };
-    } catch {
-      return { schemes: [], aiSuggested: false, noLocalMatch: true };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      return {
+        schemes: [],
+        aiSuggested: false,
+        noLocalMatch: true,
+        aiError: `AI se jawab nahi aaya. Error: ${errorMsg}`,
+      };
     }
   }
 
